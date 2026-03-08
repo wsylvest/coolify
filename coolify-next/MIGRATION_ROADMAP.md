@@ -148,47 +148,47 @@ This document outlines the complete migration strategy from Coolify (Laravel/PHP
 | Database backups | P0 | Pending | ScheduledDatabaseBackup |
 | Database proxy | P1 | Pending | StartDatabaseProxy |
 
-### Phase 6: Proxy & Networking (Week 13-14)
+### Phase 6: Proxy & Networking (Week 13-14) ✅
 **Goal**: Reverse proxy and domain management
 
 | Task | Priority | Status | Laravel Equivalent |
 |------|----------|--------|-------------------|
-| Traefik integration | P0 | Pending | Proxy actions |
-| Caddy integration | P1 | Pending | ProxyTypes enum |
-| SSL/TLS certificates | P0 | Pending | SslHelper |
-| Domain management | P0 | Pending | FQDN handling |
-| Wildcard domains | P1 | Pending | Wildcard support |
+| Traefik integration | P0 | **Done** | Proxy actions |
+| Caddy integration | P1 | **Done** | ProxyTypes enum |
+| SSL/TLS certificates | P0 | **Done** | SslHelper |
+| Domain management | P0 | **Done** | FQDN handling |
+| Wildcard domains | P1 | **Done** | Wildcard support |
 
-### Phase 7: Services & Templates (Week 15-16)
+### Phase 7: Services & Templates (Week 15-16) ✅
 **Goal**: One-click service deployments
 
 | Task | Priority | Status | Laravel Equivalent |
 |------|----------|--------|-------------------|
-| Service model | P0 | Pending | Service.php |
-| Template parser | P0 | Pending | templates/compose/ |
-| Service deployments | P0 | Pending | StartService action |
+| Service model | P0 | **Done** | Service.php |
+| Template parser | P0 | **Done** | templates/compose/ |
+| Service deployments | P0 | **Done** | StartService action |
 | 100+ service templates | P1 | Pending | YAML templates |
 
-### Phase 8: Real-time & Notifications (Week 17-18)
+### Phase 8: Real-time & Notifications (Week 17-18) ✅
 **Goal**: Live updates and alerts
 
 | Task | Priority | Status | Laravel Equivalent |
 |------|----------|--------|-------------------|
-| WebSocket server | P0 | Pending | Soketi/Pusher |
-| Real-time container status | P0 | Pending | ServerCheck action |
-| Email notifications | P0 | Pending | Email notifications |
-| Slack/Discord/Telegram | P1 | Pending | Notification channels |
-| Webhook support | P1 | Pending | Webhook routes |
+| WebSocket server | P0 | **Done** | Soketi/Pusher |
+| Real-time container status | P0 | **Done** | ServerCheck action |
+| Email notifications | P0 | **Done** | Email notifications |
+| Slack/Discord/Telegram | P1 | **Done** | Notification channels |
+| Webhook support | P1 | **Done** | Webhook routes |
 
-### Phase 9: API & Integrations (Week 19-20)
+### Phase 9: API & Integrations (Week 19-20) ✅
 **Goal**: External API and webhooks
 
 | Task | Priority | Status | Laravel Equivalent |
 |------|----------|--------|-------------------|
-| REST API v1 | P0 | Pending | routes/api.php |
-| API authentication | P0 | Pending | Sanctum |
-| GitHub webhooks | P0 | Pending | GitHub controller |
-| GitLab webhooks | P1 | Pending | GitLab controller |
+| REST API v1 | P0 | **Done** | routes/api.php |
+| API authentication | P0 | **Done** | Sanctum |
+| GitHub webhooks | P0 | **Done** | GitHub controller |
+| GitLab webhooks | P1 | **Done** | GitLab controller |
 | Bitbucket/Gitea webhooks | P2 | Pending | Other webhooks |
 
 ### Phase 10: Advanced Features (Week 21-24)

@@ -8,6 +8,8 @@ import { databasesRouter } from "./routers/databases";
 import { servicesRouter } from "./routers/services";
 import { deploymentsRouter } from "./routers/deployments";
 import { privateKeysRouter } from "./routers/private-keys";
+import { proxyRouter } from "./routers/proxy";
+import { notificationsRouter } from "./routers/notifications";
 
 /**
  * Root tRPC router combining all domain routers
@@ -22,6 +24,8 @@ export const appRouter = createTRPCRouter({
   services: servicesRouter,
   deployments: deploymentsRouter,
   privateKeys: privateKeysRouter,
+  proxy: proxyRouter,
+  notifications: notificationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

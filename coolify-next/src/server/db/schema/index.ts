@@ -9,6 +9,8 @@ export * from "./environments";
 export * from "./applications";
 export * from "./databases";
 export * from "./services";
+export * from "./proxy";
+export * from "./notifications";
 
 // Re-export enums for convenience
 export {
