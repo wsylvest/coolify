@@ -11,6 +11,7 @@ export * from "./databases";
 export * from "./services";
 export * from "./proxy";
 export * from "./notifications";
+export * from "./advanced";
 
 // Re-export enums for convenience
 export {
