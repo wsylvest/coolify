@@ -72,3 +72,8 @@ export const QUEUE_NAMES = {
   BACKUP: "backup",
   NOTIFICATION: "notification",
 } as const;
+
+// Re-export queues for convenience
+export { deploymentQueue } from "./jobs/deployment";
+export { databaseQueue } from "./jobs/database";
+export { serviceQueue } from "./jobs/service";

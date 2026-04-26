@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/server/db";
-import { applications, deploymentQueue } from "@/server/db/schema";
+import { applications, applicationDeployments } from "@/server/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { verifyApiToken, getTeamFromToken } from "@/lib/api-auth";
-import { deploymentQueue as queue } from "@/server/queue";
+import { deploymentQueue } from "@/server/queue";
 import { createId } from "@paralleldrive/cuid2";
 
 // POST /api/v1/deploy - Trigger deployment
@@ -108,24 +108,20 @@ export async function POST(request: NextRequest) {
   const deploymentId = createId();
 
   const [deployment] = await db
-    .insert(deploymentQueue)
+    .insert(applicationDeployments)
     .values({
       id: deploymentId,
       applicationId: application.id,
       status: "queued",
-      triggeredBy: "api",
       commit: input.commit,
-      branch: input.branch ?? application.branch,
-      force: input.force,
-      rollback: input.rollback,
+      forceRebuild: input.force,
     })
     .returning();
 
   // Queue the deployment job
-  await queue.add("deployment", {
+  await deploymentQueue.add("deployment", {
     deploymentId: deployment.id,
     applicationId: application.id,
-    serverId: application.serverId,
     force: input.force,
     rollback: input.rollback,
   });
@@ -169,8 +165,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const deployment = await db.query.deploymentQueue.findFirst({
-    where: eq(deploymentQueue.id, deploymentId),
+  const deployment = await db.query.applicationDeployments.findFirst({
+    where: eq(applicationDeployments.id, deploymentId),
     with: {
       application: {
         with: {
@@ -205,10 +201,9 @@ export async function GET(request: NextRequest) {
       applicationId: deployment.applicationId,
       status: deployment.status,
       commit: deployment.commit,
-      branch: deployment.branch,
-      startedAt: deployment.startedAt,
-      finishedAt: deployment.finishedAt,
       logs: deployment.logs,
+      createdAt: deployment.createdAt,
+      updatedAt: deployment.updatedAt,
     },
   });
 }

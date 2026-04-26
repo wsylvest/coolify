@@ -13,6 +13,9 @@ export * from "./proxy";
 export * from "./notifications";
 export * from "./advanced";
 
+// Alias for api-auth compatibility
+export { personalAccessTokens as apiTokens } from "./users";
+
 // Re-export enums for convenience
 export {
   teamRoleEnum,

@@ -6,289 +6,173 @@ import {
   Database,
   Boxes,
   Activity,
-  ArrowUp,
-  ArrowDown,
-  Clock,
   CheckCircle,
   XCircle,
-  AlertTriangle,
+  Loader2,
 } from "lucide-react";
-
-// Mock data - would come from tRPC in real implementation
-const stats = [
-  { name: "Servers", value: 5, icon: Server, change: "+1", changeType: "positive" },
-  { name: "Applications", value: 23, icon: Rocket, change: "+3", changeType: "positive" },
-  { name: "Databases", value: 8, icon: Database, change: "0", changeType: "neutral" },
-  { name: "Services", value: 12, icon: Boxes, change: "-1", changeType: "negative" },
-];
-
-const recentDeployments = [
-  { id: "1", application: "api-gateway", status: "completed", time: "2 min ago", commit: "abc1234" },
-  { id: "2", application: "web-frontend", status: "completed", time: "15 min ago", commit: "def5678" },
-  { id: "3", application: "worker-service", status: "failed", time: "32 min ago", commit: "ghi9012" },
-  { id: "4", application: "auth-service", status: "completed", time: "1 hour ago", commit: "jkl3456" },
-  { id: "5", application: "notification-svc", status: "in_progress", time: "Just now", commit: "mno7890" },
-];
-
-const serverStatus = [
-  { id: "1", name: "Production Server", status: "online", cpu: 45, memory: 62, disk: 38 },
-  { id: "2", name: "Staging Server", status: "online", cpu: 23, memory: 41, disk: 55 },
-  { id: "3", name: "Dev Server", status: "offline", cpu: 0, memory: 0, disk: 72 },
-];
-
-const recentActivity = [
-  { id: "1", action: "Deployed", resource: "api-gateway", user: "admin", time: "2 min ago" },
-  { id: "2", action: "Created", resource: "new-database", user: "developer", time: "15 min ago" },
-  { id: "3", action: "Updated settings", resource: "web-frontend", user: "admin", time: "1 hour ago" },
-  { id: "4", action: "Backup completed", resource: "postgres-main", user: "system", time: "2 hours ago" },
-];
-
-function getStatusIcon(status: string) {
-  switch (status) {
-    case "completed":
-      return <CheckCircle className="h-5 w-5 text-green-500" />;
-    case "failed":
-      return <XCircle className="h-5 w-5 text-red-500" />;
-    case "in_progress":
-      return <Clock className="h-5 w-5 text-yellow-500 animate-pulse" />;
-    default:
-      return <AlertTriangle className="h-5 w-5 text-gray-500" />;
-  }
-}
-
-function getStatusColor(status: string) {
-  switch (status) {
-    case "online":
-      return "bg-green-500";
-    case "offline":
-      return "bg-red-500";
-    default:
-      return "bg-gray-500";
-  }
-}
+import { trpc } from "@/components/providers/trpc-provider";
 
 export default function DashboardPage() {
+  const servers = trpc.servers.list.useQuery();
+  const applications = trpc.applications.list.useQuery();
+  const databases = trpc.databases.list.useQuery();
+  const services = trpc.services.list.useQuery();
+
+  const isLoading =
+    servers.isLoading ||
+    applications.isLoading ||
+    databases.isLoading ||
+    services.isLoading;
+
+  const stats = [
+    {
+      name: "Servers",
+      value: servers.data?.length ?? 0,
+      icon: Server,
+      running: servers.data?.filter((s) => s.isReachable).length ?? 0,
+    },
+    {
+      name: "Applications",
+      value: applications.data?.length ?? 0,
+      icon: Rocket,
+      running: applications.data?.filter((a) => a.status === "running").length ?? 0,
+    },
+    {
+      name: "Databases",
+      value: databases.data?.length ?? 0,
+      icon: Database,
+      running: databases.data?.filter((d) => d.status === "running").length ?? 0,
+    },
+    {
+      name: "Services",
+      value: services.data?.length ?? 0,
+      icon: Boxes,
+      running: services.data?.filter((s) => s.status === "running").length ?? 0,
+    },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Page header */}
+    <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Dashboard
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400">
-          Overview of your infrastructure
-        </p>
+        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+        <p className="text-muted-foreground">Overview of your infrastructure</p>
       </div>
 
-      {/* Stats grid */}
+      {/* Stats Grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
           <div
             key={stat.name}
-            className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700"
+            className="rounded-lg border bg-card p-6 shadow-sm"
           >
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  {stat.name}
-                </p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                  {stat.value}
-                </p>
-              </div>
-              <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                <stat.icon className="h-6 w-6 text-purple-600 dark:text-purple-400" />
-              </div>
+              <p className="text-sm font-medium text-muted-foreground">
+                {stat.name}
+              </p>
+              <stat.icon className="h-5 w-5 text-muted-foreground" />
             </div>
-            <div className="mt-4 flex items-center text-sm">
-              {stat.changeType === "positive" && (
-                <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
-              )}
-              {stat.changeType === "negative" && (
-                <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
-              )}
-              <span
-                className={
-                  stat.changeType === "positive"
-                    ? "text-green-500"
-                    : stat.changeType === "negative"
-                    ? "text-red-500"
-                    : "text-gray-500"
-                }
-              >
-                {stat.change}
-              </span>
-              <span className="text-gray-500 dark:text-gray-400 ml-2">
-                from last week
-              </span>
-            </div>
+            <p className="mt-2 text-3xl font-bold text-foreground">
+              {stat.value}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {stat.running} running
+            </p>
           </div>
         ))}
       </div>
 
-      {/* Main content grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent deployments */}
-        <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Recent Deployments
-            </h2>
-          </div>
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {recentDeployments.map((deployment) => (
-              <div
-                key={deployment.id}
-                className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-              >
-                <div className="flex items-center space-x-4">
-                  {getStatusIcon(deployment.status)}
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">
-                      {deployment.application}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {deployment.commit}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {deployment.time}
-                  </p>
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                      deployment.status === "completed"
-                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                        : deployment.status === "failed"
-                        ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                    }`}
-                  >
-                    {deployment.status.replace("_", " ")}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-            <a
-              href="/deployments"
-              className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
-            >
-              View all deployments →
-            </a>
-          </div>
+      {/* Recent Applications */}
+      <div className="rounded-lg border bg-card shadow-sm">
+        <div className="border-b px-6 py-4">
+          <h2 className="text-lg font-semibold text-foreground">Applications</h2>
         </div>
-
-        {/* Server status */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Server Status
-            </h2>
-          </div>
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {serverStatus.map((server) => (
-              <div key={server.id} className="px-6 py-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-2">
-                    <span
-                      className={`h-2 w-2 rounded-full ${getStatusColor(
-                        server.status
-                      )}`}
-                    />
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {server.name}
-                    </span>
+        <div className="divide-y">
+          {(applications.data ?? []).length === 0 ? (
+            <div className="px-6 py-8 text-center text-sm text-muted-foreground">
+              No applications yet. Create one to get started.
+            </div>
+          ) : (
+            (applications.data ?? []).slice(0, 10).map((app) => (
+              <div
+                key={app.id}
+                className="flex items-center justify-between px-6 py-3"
+              >
+                <div className="flex items-center gap-3">
+                  <StatusDot status={app.status ?? "exited"} />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {app.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {app.environment?.project?.name} / {app.environment?.name}
+                    </p>
                   </div>
-                  <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                    {server.status}
-                  </span>
                 </div>
-                {server.status === "online" && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500 dark:text-gray-400">CPU</span>
-                      <span className="text-gray-900 dark:text-white">{server.cpu}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-                      <div
-                        className="bg-purple-600 h-1.5 rounded-full"
-                        style={{ width: `${server.cpu}%` }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500 dark:text-gray-400">Memory</span>
-                      <span className="text-gray-900 dark:text-white">{server.memory}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-                      <div
-                        className="bg-blue-600 h-1.5 rounded-full"
-                        style={{ width: `${server.memory}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
+                <span className="text-xs text-muted-foreground">
+                  {app.buildPack}
+                </span>
               </div>
-            ))}
-          </div>
-          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-            <a
-              href="/servers"
-              className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
-            >
-              View all servers →
-            </a>
-          </div>
+            ))
+          )}
         </div>
       </div>
 
-      {/* Recent activity */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Recent Activity
-          </h2>
+      {/* Servers */}
+      <div className="rounded-lg border bg-card shadow-sm">
+        <div className="border-b px-6 py-4">
+          <h2 className="text-lg font-semibold text-foreground">Servers</h2>
         </div>
-        <div className="px-6 py-4">
-          <div className="flow-root">
-            <ul className="-mb-8">
-              {recentActivity.map((activity, index) => (
-                <li key={activity.id}>
-                  <div className="relative pb-8">
-                    {index !== recentActivity.length - 1 && (
-                      <span
-                        className="absolute top-5 left-5 -ml-px h-full w-0.5 bg-gray-200 dark:bg-gray-700"
-                        aria-hidden="true"
-                      />
-                    )}
-                    <div className="relative flex items-start space-x-3">
-                      <div className="relative">
-                        <div className="h-10 w-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                          <Activity className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                        </div>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div>
-                          <p className="text-sm text-gray-900 dark:text-white">
-                            <span className="font-medium">{activity.user}</span>{" "}
-                            {activity.action}{" "}
-                            <span className="font-medium">{activity.resource}</span>
-                          </p>
-                          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                            {activity.time}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+        <div className="divide-y">
+          {(servers.data ?? []).length === 0 ? (
+            <div className="px-6 py-8 text-center text-sm text-muted-foreground">
+              No servers yet. Add one to get started.
+            </div>
+          ) : (
+            (servers.data ?? []).map((server) => (
+              <div
+                key={server.id}
+                className="flex items-center justify-between px-6 py-3"
+              >
+                <div className="flex items-center gap-3">
+                  <StatusDot
+                    status={server.isReachable ? "running" : "exited"}
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {server.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {server.ip}:{server.port}
+                    </p>
                   </div>
-                </li>
-              ))}
-            </ul>
-          </div>
+                </div>
+                <span className="text-xs text-muted-foreground capitalize">
+                  {server.validationStatus}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+function StatusDot({ status }: { status: string }) {
+  const color =
+    status === "running"
+      ? "bg-green-500"
+      : status === "in_progress"
+        ? "bg-yellow-500"
+        : "bg-red-500";
+
+  return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
 }
