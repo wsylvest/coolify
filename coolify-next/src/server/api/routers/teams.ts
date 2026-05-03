@@ -9,6 +9,8 @@ import { teams, teamMembers, teamInvitations, users } from "@/server/db/schema";
 import { eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createId } from "@paralleldrive/cuid2";
+import { notificationService } from "@/server/services/notifications";
+import { logger } from "@/lib/logger";
 
 export const teamsRouter = createTRPCRouter({
   /**
@@ -242,7 +244,46 @@ export const teamsRouter = createTRPCRouter({
         })
         .returning();
 
-      // TODO: Send invitation email
+      // Get team name for the email
+      const team = await ctx.db.query.teams.findFirst({
+        where: eq(teams.id, input.teamId),
+      });
+
+      // Get inviter's name
+      const inviter = await ctx.db.query.users.findFirst({
+        where: eq(users.id, ctx.session.user.id),
+      });
+
+      // Send invitation email
+      try {
+        await notificationService.sendEmail({
+          to: input.email,
+          subject: `You've been invited to join ${team?.name ?? "a team"} on Coolify`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Team Invitation</h2>
+              <p>Hi,</p>
+              <p><strong>${inviter?.name ?? "Someone"}</strong> has invited you to join the team <strong>${team?.name ?? "their team"}</strong> on Coolify.</p>
+              <p>Role: <strong>${input.role}</strong></p>
+              <p style="margin: 30px 0;">
+                <a href="${inviteLink}" style="background-color: #7c3aed; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                  Accept Invitation
+                </a>
+              </p>
+              <p style="color: #666; font-size: 14px;">
+                Or copy this link: ${inviteLink}
+              </p>
+              <p style="color: #999; font-size: 12px; margin-top: 40px;">
+                If you didn't expect this invitation, you can ignore this email.
+              </p>
+            </div>
+          `,
+          text: `You've been invited to join ${team?.name ?? "a team"} on Coolify by ${inviter?.name ?? "someone"}. Role: ${input.role}. Accept the invitation: ${inviteLink}`,
+        });
+        logger.info("Team invitation email sent", { email: input.email, teamId: input.teamId });
+      } catch (error) {
+        logger.error("Failed to send team invitation email", { error, email: input.email });
+      }
 
       return invitation;
     }),

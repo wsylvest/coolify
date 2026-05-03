@@ -9,112 +9,91 @@ import {
   MoreVertical,
   Settings,
   Trash2,
+  RefreshCw,
   Play,
   Square,
-  RefreshCw,
   ExternalLink,
   GitBranch,
-  Clock,
   CheckCircle,
   XCircle,
+  Clock,
   Loader2,
 } from "lucide-react";
+import { trpc } from "@/components/providers/trpc-provider";
+import { formatDistanceToNow } from "date-fns";
 
-// Mock data
-const applications = [
-  {
-    id: "1",
-    uuid: "app-abc123",
-    name: "API Gateway",
-    project: "E-Commerce Platform",
-    environment: "production",
-    status: "running",
-    buildPack: "nixpacks",
-    gitRepository: "org/api-gateway",
-    branch: "main",
-    domain: "api.example.com",
-    lastDeployedAt: "2024-01-15T10:30:00Z",
-    deploymentStatus: "completed",
-  },
-  {
-    id: "2",
-    uuid: "app-def456",
-    name: "Web Frontend",
-    project: "E-Commerce Platform",
-    environment: "production",
-    status: "running",
-    buildPack: "nixpacks",
-    gitRepository: "org/web-frontend",
-    branch: "main",
-    domain: "www.example.com",
-    lastDeployedAt: "2024-01-15T09:00:00Z",
-    deploymentStatus: "completed",
-  },
-  {
-    id: "3",
-    uuid: "app-ghi789",
-    name: "Worker Service",
-    project: "E-Commerce Platform",
-    environment: "production",
-    status: "stopped",
-    buildPack: "dockerfile",
-    gitRepository: "org/worker-service",
-    branch: "main",
-    domain: null,
-    lastDeployedAt: "2024-01-14T18:00:00Z",
-    deploymentStatus: "failed",
-  },
-  {
-    id: "4",
-    uuid: "app-jkl012",
-    name: "Analytics Backend",
-    project: "Analytics Dashboard",
-    environment: "production",
-    status: "deploying",
-    buildPack: "nixpacks",
-    gitRepository: "org/analytics-backend",
-    branch: "main",
-    domain: "analytics-api.example.com",
-    lastDeployedAt: "2024-01-15T10:35:00Z",
-    deploymentStatus: "in_progress",
-  },
-];
-
-function getStatusIcon(status: string) {
+function getStatusIcon(status: string | null) {
   switch (status) {
     case "running":
       return <CheckCircle className="h-5 w-5 text-green-500" />;
+    case "exited":
     case "stopped":
       return <XCircle className="h-5 w-5 text-red-500" />;
-    case "deploying":
-      return <Loader2 className="h-5 w-5 text-yellow-500 animate-spin" />;
+    case "starting":
+    case "restarting":
+      return <Clock className="h-5 w-5 text-yellow-500 animate-pulse" />;
     default:
       return <Clock className="h-5 w-5 text-gray-500" />;
   }
 }
 
-function getStatusBadge(status: string) {
-  const classes = {
+function getStatusBadge(status: string | null) {
+  const classes: Record<string, string> = {
     running: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+    exited: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
     stopped: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-    deploying: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+    starting: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+    restarting: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
   };
-  return classes[status as keyof typeof classes] || "bg-gray-100 text-gray-800";
+  return classes[status ?? ""] || "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400";
 }
 
 export default function ApplicationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("all");
 
-  const filteredApplications = applications.filter((app) => {
+  const { data: applications, isLoading, error, refetch } = trpc.applications.list.useQuery();
+  const deleteApp = trpc.applications.delete.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const filteredApps = (applications ?? []).filter((app) => {
     const matchesSearch =
       app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      app.project.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      app.gitRepository.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || app.status === statusFilter;
-    return matchesSearch && matchesStatus;
+      (app.fqdn?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
+
+    if (statusFilter === "all") return matchesSearch;
+    return matchesSearch && app.status === statusFilter;
   });
+
+  const handleDelete = async (applicationId: string) => {
+    if (confirm("Are you sure you want to delete this application?")) {
+      await deleteApp.mutateAsync({ applicationId });
+      setSelectedApp(null);
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <XCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+          Failed to load applications
+        </h3>
+        <p className="text-gray-500 dark:text-gray-400 mb-4">
+          {error.message}
+        </p>
+        <button
+          onClick={() => refetch()}
+          className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+        >
+          <RefreshCw className="h-5 w-5 mr-2" />
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -128,10 +107,13 @@ export default function ApplicationsPage() {
             Manage your deployed applications
           </p>
         </div>
-        <button className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors">
+        <Link
+          href="/applications/new"
+          className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+        >
           <Plus className="h-5 w-5 mr-2" />
           New Application
-        </button>
+        </Link>
       </div>
 
       {/* Search and filters */}
@@ -153,160 +135,172 @@ export default function ApplicationsPage() {
         >
           <option value="all">All Status</option>
           <option value="running">Running</option>
-          <option value="stopped">Stopped</option>
-          <option value="deploying">Deploying</option>
+          <option value="exited">Stopped</option>
         </select>
       </div>
 
-      {/* Applications table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Application
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Project / Environment
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Domain
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Last Deployed
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredApplications.map((app) => (
-                <tr
-                  key={app.id}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                >
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg mr-3">
-                        <Rocket className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                      </div>
-                      <div>
+      {/* Loading state */}
+      {isLoading && (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+        </div>
+      )}
+
+      {/* Application cards */}
+      {!isLoading && filteredApps.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {filteredApps.map((app) => (
+            <div
+              key={app.id}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow"
+            >
+              {/* Card header */}
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                      <Rocket className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">
+                        {app.name}
+                      </h3>
+                      {app.fqdn && (
+                        <a
+                          href={`https://${app.fqdn}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-purple-600 dark:text-purple-400 hover:underline flex items-center"
+                        >
+                          {app.fqdn}
+                          <ExternalLink className="h-3 w-3 ml-1" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <button
+                      onClick={() =>
+                        setSelectedApp(selectedApp === app.id ? null : app.id)
+                      }
+                      className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <MoreVertical className="h-5 w-5 text-gray-500" />
+                    </button>
+                    {selectedApp === app.id && (
+                      <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-10">
                         <Link
                           href={`/applications/${app.id}`}
-                          className="font-medium text-gray-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400"
+                          className="flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                         >
-                          {app.name}
+                          <Settings className="h-4 w-4 mr-2" />
+                          Settings
                         </Link>
-                        <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
-                          <GitBranch className="h-3.5 w-3.5 mr-1" />
-                          {app.gitRepository} / {app.branch}
-                        </div>
+                        <button className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Redeploy
+                        </button>
+                        {app.status === "running" ? (
+                          <button className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <Square className="h-4 w-4 mr-2" />
+                            Stop
+                          </button>
+                        ) : (
+                          <button className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <Play className="h-4 w-4 mr-2" />
+                            Start
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(app.id)}
+                          disabled={deleteApp.isPending}
+                          className="w-full flex items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </button>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 dark:text-white">
-                      {app.project}
-                    </div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      {app.environment}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
-                        app.status
-                      )}`}
-                    >
-                      {getStatusIcon(app.status)}
-                      <span className="ml-1.5 capitalize">{app.status}</span>
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {app.domain ? (
-                      <a
-                        href={`https://${app.domain}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center text-sm text-purple-600 dark:text-purple-400 hover:underline"
-                      >
-                        {app.domain}
-                        <ExternalLink className="h-3.5 w-3.5 ml-1" />
-                      </a>
-                    ) : (
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        No domain
-                      </span>
                     )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 dark:text-white">
-                      {new Date(app.lastDeployedAt).toLocaleDateString()}
-                    </div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      {new Date(app.lastDeployedAt).toLocaleTimeString()}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className="flex items-center justify-end space-x-2">
-                      {app.status === "running" ? (
-                        <button
-                          className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                          title="Stop"
-                        >
-                          <Square className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <button
-                          className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors"
-                          title="Start"
-                        >
-                          <Play className="h-4 w-4" />
-                        </button>
-                      )}
-                      <button
-                        className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors"
-                        title="Redeploy"
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                      </button>
-                      <Link
-                        href={`/applications/${app.id}/settings`}
-                        className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                        title="Settings"
-                      >
-                        <Settings className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  </div>
+                </div>
+              </div>
 
-      {filteredApplications.length === 0 && (
+              {/* Card body */}
+              <div className="px-6 py-4">
+                <div className="flex items-center justify-between mb-4">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
+                      app.status
+                    )}`}
+                  >
+                    {getStatusIcon(app.status)}
+                    <span className="ml-1">{app.status || "unknown"}</span>
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">
+                    {app.buildPack}
+                  </span>
+                </div>
+
+                {app.gitRepository && (
+                  <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 mb-2">
+                    <GitBranch className="h-4 w-4 mr-2" />
+                    <span className="truncate">{app.gitRepository}</span>
+                  </div>
+                )}
+
+                {app.gitBranch && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 ml-6">
+                    Branch: {app.gitBranch}
+                    {app.gitCommitSha && ` (${app.gitCommitSha.slice(0, 7)})`}
+                  </p>
+                )}
+
+                {app.description && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 truncate">
+                    {app.description}
+                  </p>
+                )}
+              </div>
+
+              {/* Card footer */}
+              <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    {app.environment?.project?.name ?? "No project"} / {app.environment?.name ?? "No env"}
+                  </span>
+                  <Link
+                    href={`/applications/${app.id}`}
+                    className="text-purple-600 dark:text-purple-400 hover:underline"
+                  >
+                    View Details &rarr;
+                  </Link>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!isLoading && filteredApps.length === 0 && (
         <div className="text-center py-12">
           <Rocket className="h-12 w-12 mx-auto text-gray-400 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
             No applications found
           </h3>
           <p className="text-gray-500 dark:text-gray-400 mb-4">
-            {searchQuery || statusFilter !== "all"
-              ? "Try adjusting your filters"
+            {searchQuery
+              ? "Try adjusting your search query"
               : "Get started by deploying your first application"}
           </p>
-          {!searchQuery && statusFilter === "all" && (
-            <button className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors">
+          {!searchQuery && (
+            <Link
+              href="/applications/new"
+              className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+            >
               <Plus className="h-5 w-5 mr-2" />
               New Application
-            </button>
+            </Link>
           )}
         </div>
       )}

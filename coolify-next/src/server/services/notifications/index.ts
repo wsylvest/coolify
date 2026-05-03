@@ -359,12 +359,72 @@ class NotificationService {
    * Send webhook notification
    */
   private async sendWebhook(payload: NotificationPayload): Promise<void> {
-    // Webhooks are handled separately - this is for custom webhook endpoints
-    // that teams can configure for integrations
-    logger.info("Webhook notification placeholder", {
+    // Get Discord and Slack settings which both have webhook URLs
+    // We'll send to any configured webhook
+    const [discordSettings, slackSettings] = await Promise.all([
+      db.query.discordNotificationSettings.findFirst({
+        where: and(
+          eq(discordNotificationSettings.teamId, payload.teamId),
+          eq(discordNotificationSettings.enabled, true)
+        ),
+      }),
+      db.query.slackNotificationSettings.findFirst({
+        where: and(
+          eq(slackNotificationSettings.teamId, payload.teamId),
+          eq(slackNotificationSettings.enabled, true)
+        ),
+      }),
+    ]);
+
+    const webhookUrls: string[] = [];
+    if (discordSettings?.webhookUrl) webhookUrls.push(discordSettings.webhookUrl);
+    if (slackSettings?.webhookUrl) webhookUrls.push(slackSettings.webhookUrl);
+
+    if (webhookUrls.length === 0) {
+      logger.debug("No webhook URLs configured for team", { teamId: payload.teamId });
+      return;
+    }
+
+    const webhookPayload = {
+      event: payload.eventType,
+      title: payload.title,
+      message: payload.message,
       teamId: payload.teamId,
-      eventType: payload.eventType,
-    });
+      resourceType: payload.resourceType,
+      resourceId: payload.resourceId,
+      metadata: payload.metadata,
+      timestamp: new Date().toISOString(),
+    };
+
+    for (const webhookUrl of webhookUrls) {
+      try {
+        const response = await fetch(webhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "Coolify-Webhook/1.0",
+          },
+          body: JSON.stringify(webhookPayload),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Webhook returned ${response.status}: ${response.statusText}`);
+        }
+
+        logger.info("Webhook notification sent", {
+          teamId: payload.teamId,
+          eventType: payload.eventType,
+          webhookUrl: webhookUrl.replace(/\/[^/]+$/, "/***"), // Mask token
+        });
+      } catch (error) {
+        logger.error("Failed to send webhook notification", {
+          error,
+          teamId: payload.teamId,
+          webhookUrl: webhookUrl.replace(/\/[^/]+$/, "/***"),
+        });
+        throw error;
+      }
+    }
   }
 
   /**

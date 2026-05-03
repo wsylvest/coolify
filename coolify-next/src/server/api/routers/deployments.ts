@@ -3,6 +3,9 @@ import { createTRPCRouter, teamProcedure } from "../trpc";
 import { applicationDeployments, applications } from "@/server/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { deploymentQueue } from "@/server/queue/jobs/deployment";
+import { realtimeService } from "@/server/services/realtime";
+import { logger } from "@/lib/logger";
 
 export const deploymentsRouter = createTRPCRouter({
   /**
@@ -154,12 +157,43 @@ export const deploymentsRouter = createTRPCRouter({
         });
       }
 
+      // Update database status first
       await ctx.db
         .update(applicationDeployments)
-        .set({ status: "cancelled" })
+        .set({
+          status: "cancelled",
+          finishedAt: new Date(),
+        })
         .where(eq(applicationDeployments.id, input.deploymentId));
 
-      // TODO: Actually cancel the running job if in progress
+      // Try to cancel the BullMQ job
+      try {
+        // Get all jobs and find the one matching this deployment
+        const jobs = await deploymentQueue.getJobs(["active", "waiting", "delayed"]);
+        const matchingJob = jobs.find(
+          (job) => job.data && "deploymentId" in job.data && job.data.deploymentId === input.deploymentId
+        );
+
+        if (matchingJob) {
+          // If job is waiting, remove it
+          const state = await matchingJob.getState();
+          if (state === "waiting" || state === "delayed") {
+            await matchingJob.remove();
+            logger.info("Removed queued deployment job", { deploymentId: input.deploymentId });
+          } else if (state === "active") {
+            // For active jobs, we can't stop them directly but we marked the DB as cancelled
+            // The worker should check the status periodically and stop if cancelled
+            await matchingJob.moveToFailed(new Error("Deployment cancelled by user"), matchingJob.token ?? "");
+            logger.info("Marked active deployment job as failed", { deploymentId: input.deploymentId });
+          }
+        }
+      } catch (error) {
+        logger.warn("Could not cancel BullMQ job, database status updated", { error, deploymentId: input.deploymentId });
+      }
+
+      // Emit realtime status update
+      const teamId = deployment.application.environment.project.teamId;
+      realtimeService.emitDeploymentStatus(teamId, input.deploymentId, "cancelled");
 
       return { success: true };
     }),

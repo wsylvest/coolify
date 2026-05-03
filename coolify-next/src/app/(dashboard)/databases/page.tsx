@@ -16,92 +16,103 @@ import {
   CheckCircle,
   XCircle,
   HardDrive,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
+import { trpc } from "@/components/providers/trpc-provider";
+import { formatDistanceToNow } from "date-fns";
 
-// Mock data
-const databases = [
-  {
-    id: "1",
-    uuid: "db-abc123",
-    name: "postgres-main",
-    type: "postgresql",
-    version: "15.4",
-    project: "E-Commerce Platform",
-    environment: "production",
-    status: "running",
-    size: "2.4 GB",
-    connections: 12,
-    lastBackupAt: "2024-01-15T06:00:00Z",
-  },
-  {
-    id: "2",
-    uuid: "db-def456",
-    name: "redis-cache",
-    type: "redis",
-    version: "7.2",
-    project: "E-Commerce Platform",
-    environment: "production",
-    status: "running",
-    size: "512 MB",
-    connections: 45,
-    lastBackupAt: null,
-  },
-  {
-    id: "3",
-    uuid: "db-ghi789",
-    name: "mysql-legacy",
-    type: "mysql",
-    version: "8.0",
-    project: "Internal Tools",
-    environment: "production",
-    status: "stopped",
-    size: "1.8 GB",
-    connections: 0,
-    lastBackupAt: "2024-01-14T06:00:00Z",
-  },
-  {
-    id: "4",
-    uuid: "db-jkl012",
-    name: "mongodb-analytics",
-    type: "mongodb",
-    version: "7.0",
-    project: "Analytics Dashboard",
-    environment: "production",
-    status: "running",
-    size: "5.2 GB",
-    connections: 8,
-    lastBackupAt: "2024-01-15T06:00:00Z",
-  },
-];
-
-const databaseIcons: Record<string, string> = {
-  postgresql: "🐘",
-  mysql: "🐬",
-  mariadb: "🦭",
-  mongodb: "🍃",
-  redis: "🔴",
-  clickhouse: "🏠",
+const DB_ICONS: Record<string, string> = {
+  postgresql: "P",
+  mysql: "M",
+  mariadb: "Ma",
+  redis: "R",
+  mongodb: "Mo",
+  keydb: "K",
+  dragonfly: "D",
+  clickhouse: "C",
 };
 
-function getStatusBadge(status: string) {
-  const classes = {
+const DB_COLORS: Record<string, string> = {
+  postgresql: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  mysql: "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400",
+  mariadb: "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400",
+  redis: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  mongodb: "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400",
+  keydb: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  dragonfly: "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400",
+  clickhouse: "bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400",
+};
+
+function getStatusIcon(status: string | null) {
+  switch (status) {
+    case "running":
+      return <CheckCircle className="h-5 w-5 text-green-500" />;
+    case "exited":
+    case "stopped":
+      return <XCircle className="h-5 w-5 text-red-500" />;
+    default:
+      return <HardDrive className="h-5 w-5 text-gray-500" />;
+  }
+}
+
+function getStatusBadge(status: string | null) {
+  const classes: Record<string, string> = {
     running: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+    exited: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
     stopped: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
   };
-  return classes[status as keyof typeof classes] || "bg-gray-100 text-gray-800";
+  return classes[status ?? ""] || "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400";
 }
 
 export default function DatabasesPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [selectedDb, setSelectedDb] = useState<string | null>(null);
 
-  const filteredDatabases = databases.filter((db) => {
+  const { data: databases, isLoading, error, refetch } = trpc.databases.list.useQuery();
+  const deleteDb = trpc.databases.delete.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const filteredDbs = (databases ?? []).filter((db) => {
     const matchesSearch =
       db.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      db.project.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = typeFilter === "all" || db.type === typeFilter;
-    return matchesSearch && matchesType;
+      db.type.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (typeFilter === "all") return matchesSearch;
+    return matchesSearch && db.type === typeFilter;
   });
+
+  const dbTypes = [...new Set((databases ?? []).map((db) => db.type))];
+
+  const handleDelete = async (databaseId: string) => {
+    if (confirm("Are you sure you want to delete this database? This action cannot be undone.")) {
+      await deleteDb.mutateAsync({ databaseId });
+      setSelectedDb(null);
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <XCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+          Failed to load databases
+        </h3>
+        <p className="text-gray-500 dark:text-gray-400 mb-4">
+          {error.message}
+        </p>
+        <button
+          onClick={() => refetch()}
+          className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+        >
+          <RefreshCw className="h-5 w-5 mr-2" />
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -115,10 +126,13 @@ export default function DatabasesPage() {
             Manage your database instances
           </p>
         </div>
-        <button className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors">
+        <Link
+          href="/databases/new"
+          className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+        >
           <Plus className="h-5 w-5 mr-2" />
           New Database
-        </button>
+        </Link>
       </div>
 
       {/* Search and filters */}
@@ -139,155 +153,177 @@ export default function DatabasesPage() {
           className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
         >
           <option value="all">All Types</option>
-          <option value="postgresql">PostgreSQL</option>
-          <option value="mysql">MySQL</option>
-          <option value="mongodb">MongoDB</option>
-          <option value="redis">Redis</option>
+          {dbTypes.map((type) => (
+            <option key={type} value={type}>
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </option>
+          ))}
         </select>
       </div>
 
+      {/* Loading state */}
+      {isLoading && (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+        </div>
+      )}
+
       {/* Database cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {filteredDatabases.map((db) => (
-          <div
-            key={db.id}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow"
-          >
-            {/* Card header */}
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="text-2xl">
-                    {databaseIcons[db.type] || "📦"}
+      {!isLoading && filteredDbs.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {filteredDbs.map((db) => (
+            <div
+              key={db.id}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow"
+            >
+              {/* Card header */}
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm ${
+                        DB_COLORS[db.type] || "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {DB_ICONS[db.type] || "DB"}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">
+                        {db.name}
+                      </h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {db.type} {db.dbVersion && `v${db.dbVersion}`}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900 dark:text-white">
-                      {db.name}
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {db.type} {db.version}
+                  <div className="relative">
+                    <button
+                      onClick={() =>
+                        setSelectedDb(selectedDb === db.id ? null : db.id)
+                      }
+                      className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <MoreVertical className="h-5 w-5 text-gray-500" />
+                    </button>
+                    {selectedDb === db.id && (
+                      <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-10">
+                        <Link
+                          href={`/databases/${db.id}`}
+                          className="flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          <Settings className="h-4 w-4 mr-2" />
+                          Settings
+                        </Link>
+                        <button className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                          <Terminal className="h-4 w-4 mr-2" />
+                          Console
+                        </button>
+                        <button className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                          <Download className="h-4 w-4 mr-2" />
+                          Backup Now
+                        </button>
+                        {db.status === "running" ? (
+                          <button className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <Square className="h-4 w-4 mr-2" />
+                            Stop
+                          </button>
+                        ) : (
+                          <button className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <Play className="h-4 w-4 mr-2" />
+                            Start
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(db.id)}
+                          disabled={deleteDb.isPending}
+                          className="w-full flex items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Card body */}
+              <div className="px-6 py-4">
+                <div className="flex items-center justify-between mb-4">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
+                      db.status
+                    )}`}
+                  >
+                    {getStatusIcon(db.status)}
+                    <span className="ml-1">{db.status || "unknown"}</span>
+                  </span>
+                  {db.publicPort && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Port: {db.publicPort}
+                    </span>
+                  )}
+                </div>
+
+                {db.description && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 truncate">
+                    {db.description}
+                  </p>
+                )}
+
+                <div className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
+                  {db.dbName && (
+                    <p>
+                      Database: <span className="font-mono">{db.dbName}</span>
                     </p>
-                  </div>
-                </div>
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
-                    db.status
-                  )}`}
-                >
-                  {db.status === "running" ? (
-                    <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5 mr-1" />
                   )}
-                  {db.status}
-                </span>
-              </div>
-            </div>
-
-            {/* Card body */}
-            <div className="px-6 py-4">
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                    Size
-                  </p>
-                  <div className="flex items-center text-gray-900 dark:text-white">
-                    <HardDrive className="h-4 w-4 mr-1.5 text-gray-400" />
-                    {db.size}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                    Connections
-                  </p>
-                  <p className="text-gray-900 dark:text-white">
-                    {db.connections} active
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500 dark:text-gray-400">Project</span>
-                  <span className="text-gray-900 dark:text-white">{db.project}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500 dark:text-gray-400">Environment</span>
-                  <span className="text-gray-900 dark:text-white capitalize">
-                    {db.environment}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500 dark:text-gray-400">Last Backup</span>
-                  <span className="text-gray-900 dark:text-white">
-                    {db.lastBackupAt
-                      ? new Date(db.lastBackupAt).toLocaleDateString()
-                      : "Never"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Card footer */}
-            <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  {db.status === "running" ? (
-                    <button
-                      className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                      title="Stop"
-                    >
-                      <Square className="h-4 w-4" />
-                    </button>
-                  ) : (
-                    <button
-                      className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors"
-                      title="Start"
-                    >
-                      <Play className="h-4 w-4" />
-                    </button>
+                  {db.dbUser && (
+                    <p>
+                      User: <span className="font-mono">{db.dbUser}</span>
+                    </p>
                   )}
-                  <button
-                    className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors"
-                    title="Backup"
-                  >
-                    <Download className="h-4 w-4" />
-                  </button>
-                  <button
-                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                    title="Terminal"
-                  >
-                    <Terminal className="h-4 w-4" />
-                  </button>
                 </div>
-                <Link
-                  href={`/databases/${db.id}`}
-                  className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
-                >
-                  View Details →
-                </Link>
+              </div>
+
+              {/* Card footer */}
+              <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    {db.environment?.project?.name ?? "No project"} / {db.environment?.name ?? "No env"}
+                  </span>
+                  <Link
+                    href={`/databases/${db.id}`}
+                    className="text-purple-600 dark:text-purple-400 hover:underline"
+                  >
+                    View Details &rarr;
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {filteredDatabases.length === 0 && (
+      {/* Empty state */}
+      {!isLoading && filteredDbs.length === 0 && (
         <div className="text-center py-12">
           <Database className="h-12 w-12 mx-auto text-gray-400 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
             No databases found
           </h3>
           <p className="text-gray-500 dark:text-gray-400 mb-4">
-            {searchQuery || typeFilter !== "all"
-              ? "Try adjusting your filters"
+            {searchQuery
+              ? "Try adjusting your search query"
               : "Get started by creating your first database"}
           </p>
-          {!searchQuery && typeFilter === "all" && (
-            <button className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors">
+          {!searchQuery && (
+            <Link
+              href="/databases/new"
+              className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
+            >
               <Plus className="h-5 w-5 mr-2" />
               New Database
-            </button>
+            </Link>
           )}
         </div>
       )}

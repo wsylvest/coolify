@@ -1,6 +1,10 @@
 import { Server as SocketIOServer, type Socket } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { Redis } from "ioredis";
+import { decode } from "next-auth/jwt";
+import { db } from "@/server/db";
+import { teamMembers } from "@/server/db/schema";
+import { eq } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import type { Server as HTTPServer } from "http";
 
@@ -188,21 +192,47 @@ class RealtimeService {
   private async verifyToken(
     token: string
   ): Promise<{ id: string; teamId: string } | null> {
-    // This should be implemented to verify the session token
-    // For now, returning a placeholder
     try {
-      // In a real implementation, you would:
-      // 1. Verify the JWT or session token
-      // 2. Get the user and their current team
-      // 3. Return the user info
-
-      // Placeholder implementation
-      if (token && token.length > 0) {
-        // Token validation would go here
+      if (!token || token.length === 0) {
         return null;
       }
-      return null;
-    } catch {
+
+      const secret = process.env.NEXTAUTH_SECRET;
+      if (!secret) {
+        logger.error("NEXTAUTH_SECRET not configured");
+        return null;
+      }
+
+      // Decode the JWT token from NextAuth
+      const decoded = await decode({
+        token,
+        secret,
+      });
+
+      if (!decoded?.id || typeof decoded.id !== "string") {
+        logger.debug("Invalid token: missing user ID");
+        return null;
+      }
+
+      const userId = decoded.id;
+
+      // Get the user's first team membership (or active team if stored)
+      const membership = await db.query.teamMembers.findFirst({
+        where: eq(teamMembers.userId, userId),
+        orderBy: (tm, { desc }) => [desc(tm.createdAt)],
+      });
+
+      if (!membership) {
+        logger.debug("User has no team membership", { userId });
+        return null;
+      }
+
+      return {
+        id: userId,
+        teamId: membership.teamId,
+      };
+    } catch (error) {
+      logger.error("Token verification failed", { error });
       return null;
     }
   }
