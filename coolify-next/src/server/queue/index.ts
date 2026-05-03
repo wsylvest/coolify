@@ -68,7 +68,18 @@ export const QUEUE_NAMES = {
   DEPLOYMENT: "deployment",
   DATABASE: "database",
   SERVICE: "service",
+  SERVICE_DEPLOYMENT: "service-deployment",
+  SCHEDULED_TASK: "scheduled-task",
+  PREVIEW_CLEANUP: "preview-cleanup",
   SERVER_CHECK: "server-check",
   BACKUP: "backup",
   NOTIFICATION: "notification",
 } as const;
+
+// Re-export queues for convenience
+export { deploymentQueue } from "./jobs/deployment";
+export { databaseQueue } from "./jobs/database";
+export { serviceQueue } from "./jobs/service";
+export { serviceDeploymentQueue } from "./jobs/service-deployment";
+export { scheduledTaskQueue } from "./jobs/scheduled-task";
+export { previewCleanupQueue, queuePreviewCleanup } from "./jobs/preview-cleanup";

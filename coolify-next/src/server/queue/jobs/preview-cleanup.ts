@@ -4,7 +4,8 @@
  * Handles cleanup of preview deployments when PRs are closed/merged.
  */
 
-import { Job, Worker, Queue } from "bullmq";
+import { Job, Worker, Queue, type ConnectionOptions } from "bullmq";
+import type IORedis from "ioredis";
 import { db } from "@/server/db";
 import { applications, applicationPreviews } from "@/server/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -21,7 +22,13 @@ export interface PreviewCleanupJobData {
 
 export const previewCleanupQueue = createQueue<PreviewCleanupJobData>("preview-cleanup");
 
-export function createPreviewCleanupWorker(redisConnection: { host: string; port: number }) {
+export function createPreviewCleanupWorker(redis: IORedis.Redis) {
+  const connection: ConnectionOptions = {
+    host: redis.options.host as string,
+    port: redis.options.port as number,
+    maxRetriesPerRequest: null,
+  };
+
   const worker = new Worker<PreviewCleanupJobData>(
     "preview-cleanup",
     async (job: Job<PreviewCleanupJobData>) => {
@@ -135,7 +142,7 @@ export function createPreviewCleanupWorker(redisConnection: { host: string; port
       }
     },
     {
-      connection: redisConnection,
+      connection,
       concurrency: 5,
     }
   );

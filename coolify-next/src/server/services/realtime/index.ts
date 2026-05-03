@@ -2,11 +2,22 @@ import { Server as SocketIOServer, type Socket } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { Redis } from "ioredis";
 import { decode } from "next-auth/jwt";
+import { Client, type ClientChannel } from "ssh2";
 import { db } from "@/server/db";
-import { teamMembers } from "@/server/db/schema";
+import { teamMembers, servers, privateKeys } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import type { Server as HTTPServer } from "http";
+
+interface SSHTerminalSession {
+  id: string;
+  userId: string;
+  serverId: string;
+  client: Client;
+  channel: ClientChannel;
+  cols: number;
+  rows: number;
+}
 
 export type RealtimeEventType =
   | "deployment:started"
@@ -44,6 +55,7 @@ class RealtimeService {
   private io: SocketIOServer | null = null;
   private pubClient: Redis | null = null;
   private subClient: Redis | null = null;
+  private terminalSessions: Map<string, SSHTerminalSession> = new Map();
 
   /**
    * Initialize the WebSocket server
@@ -159,11 +171,22 @@ class RealtimeService {
         }
       );
 
+      // Handle terminal session start
+      socket.on(
+        "terminal:start",
+        async (data: { serverId: string; cols?: number; rows?: number }) => {
+          if (!socket.data.userId) {
+            socket.emit("terminal:error", { message: "Not authenticated" });
+            return;
+          }
+          await this.handleTerminalStart(socket, data);
+        }
+      );
+
       // Handle terminal input
       socket.on(
         "terminal:input",
         (data: { sessionId: string; input: string }) => {
-          // Forward to terminal session handler
           this.handleTerminalInput(socket, data);
         }
       );
@@ -176,12 +199,19 @@ class RealtimeService {
         }
       );
 
+      // Handle terminal close
+      socket.on("terminal:close", (data: { sessionId: string }) => {
+        this.handleTerminalClose(socket, data);
+      });
+
       // Handle disconnection
       socket.on("disconnect", (reason) => {
         logger.debug("Client disconnected", {
           socketId: socket.id,
           reason,
         });
+        // Clean up any terminal sessions for this socket
+        this.cleanupSocketSessions(socket.id);
       });
     });
   }
@@ -238,18 +268,132 @@ class RealtimeService {
   }
 
   /**
+   * Handle terminal session start
+   */
+  private async handleTerminalStart(
+    socket: Socket,
+    data: { serverId: string; cols?: number; rows?: number }
+  ): Promise<void> {
+    try {
+      // Get server details
+      const server = await db.query.servers.findFirst({
+        where: eq(servers.id, data.serverId),
+        with: { privateKey: true },
+      });
+
+      if (!server) {
+        socket.emit("terminal:error", { message: "Server not found" });
+        return;
+      }
+
+      if (!server.privateKey) {
+        socket.emit("terminal:error", { message: "Server has no SSH key configured" });
+        return;
+      }
+
+      const sessionId = `term-${socket.id}-${Date.now()}`;
+      const cols = data.cols || 80;
+      const rows = data.rows || 24;
+
+      // Create SSH client
+      const client = new Client();
+
+      client.on("ready", () => {
+        // Request a PTY and shell
+        client.shell(
+          { cols, rows, term: "xterm-256color" },
+          (err, channel) => {
+            if (err) {
+              socket.emit("terminal:error", { message: `Shell error: ${err.message}` });
+              client.end();
+              return;
+            }
+
+            // Store session
+            const session: SSHTerminalSession = {
+              id: sessionId,
+              userId: socket.data.userId,
+              serverId: data.serverId,
+              client,
+              channel,
+              cols,
+              rows,
+            };
+            this.terminalSessions.set(sessionId, session);
+
+            // Join terminal room
+            socket.join(`terminal:${sessionId}`);
+
+            // Send session ID to client
+            socket.emit("terminal:started", { sessionId });
+
+            // Forward terminal output to client
+            channel.on("data", (output: Buffer) => {
+              socket.emit("terminal:output", {
+                sessionId,
+                output: output.toString(),
+              });
+            });
+
+            channel.stderr.on("data", (output: Buffer) => {
+              socket.emit("terminal:output", {
+                sessionId,
+                output: output.toString(),
+              });
+            });
+
+            channel.on("close", () => {
+              socket.emit("terminal:closed", { sessionId });
+              this.terminalSessions.delete(sessionId);
+              socket.leave(`terminal:${sessionId}`);
+            });
+
+            logger.info("Terminal session started", { sessionId, serverId: data.serverId });
+          }
+        );
+      });
+
+      client.on("error", (err) => {
+        socket.emit("terminal:error", { message: `SSH error: ${err.message}` });
+        this.terminalSessions.delete(sessionId);
+      });
+
+      // Connect to server
+      client.connect({
+        host: server.ip,
+        port: server.port,
+        username: server.user,
+        privateKey: server.privateKey.privateKey,
+        readyTimeout: 30000,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      socket.emit("terminal:error", { message });
+      logger.error("Terminal start failed", { error });
+    }
+  }
+
+  /**
    * Handle terminal input from client
    */
   private handleTerminalInput(
     socket: Socket,
     data: { sessionId: string; input: string }
   ): void {
-    // This would be connected to the SSH service for terminal sessions
-    // For now, just emit back to the session room
-    this.io?.to(`terminal:${data.sessionId}`).emit("terminal:output", {
-      sessionId: data.sessionId,
-      output: data.input,
-    });
+    const session = this.terminalSessions.get(data.sessionId);
+    if (!session) {
+      socket.emit("terminal:error", { message: "Session not found" });
+      return;
+    }
+
+    // Verify ownership
+    if (session.userId !== socket.data.userId) {
+      socket.emit("terminal:error", { message: "Unauthorized" });
+      return;
+    }
+
+    // Write input to SSH channel
+    session.channel.write(data.input);
   }
 
   /**
@@ -259,12 +403,60 @@ class RealtimeService {
     socket: Socket,
     data: { sessionId: string; cols: number; rows: number }
   ): void {
-    // This would resize the PTY session
-    logger.debug("Terminal resize", {
-      sessionId: data.sessionId,
-      cols: data.cols,
-      rows: data.rows,
-    });
+    const session = this.terminalSessions.get(data.sessionId);
+    if (!session) {
+      socket.emit("terminal:error", { message: "Session not found" });
+      return;
+    }
+
+    // Verify ownership
+    if (session.userId !== socket.data.userId) {
+      socket.emit("terminal:error", { message: "Unauthorized" });
+      return;
+    }
+
+    // Resize PTY
+    session.channel.setWindow(data.rows, data.cols, 0, 0);
+    session.cols = data.cols;
+    session.rows = data.rows;
+
+    logger.debug("Terminal resized", { sessionId: data.sessionId, cols: data.cols, rows: data.rows });
+  }
+
+  /**
+   * Handle terminal close from client
+   */
+  private handleTerminalClose(
+    socket: Socket,
+    data: { sessionId: string }
+  ): void {
+    const session = this.terminalSessions.get(data.sessionId);
+    if (!session) return;
+
+    // Verify ownership
+    if (session.userId !== socket.data.userId) return;
+
+    // Close SSH connection
+    session.channel.close();
+    session.client.end();
+    this.terminalSessions.delete(data.sessionId);
+    socket.leave(`terminal:${data.sessionId}`);
+
+    logger.info("Terminal session closed", { sessionId: data.sessionId });
+  }
+
+  /**
+   * Clean up terminal sessions for a disconnected socket
+   */
+  private cleanupSocketSessions(socketId: string): void {
+    for (const [sessionId, session] of this.terminalSessions.entries()) {
+      if (sessionId.includes(socketId)) {
+        session.channel.close();
+        session.client.end();
+        this.terminalSessions.delete(sessionId);
+        logger.debug("Cleaned up terminal session", { sessionId });
+      }
+    }
   }
 
   /**

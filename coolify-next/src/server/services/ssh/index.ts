@@ -3,10 +3,17 @@ import { logger } from "@/lib/logger";
 
 export interface SSHConnectionConfig {
   host: string;
-  port: number;
+  port?: number;
   username: string;
-  privateKey: string;
+  privateKey?: string;
+  privateKeyId?: string;
   timeout?: number;
+}
+
+export interface SSHConnection {
+  client: Client;
+  config: SSHConnectionConfig;
+  id: string;
 }
 
 export interface SSHExecuteResult {
@@ -55,6 +62,9 @@ export interface MemoryUsage {
 }
 
 class SSHService {
+  private connections: Map<string, SSHConnection> = new Map();
+  private connectionCounter = 0;
+
   private createClient(): Client {
     return new Client();
   }
@@ -62,13 +72,119 @@ class SSHService {
   private getConnectionConfig(config: SSHConnectionConfig): ConnectConfig {
     return {
       host: config.host,
-      port: config.port,
+      port: config.port || 22,
       username: config.username,
       privateKey: config.privateKey,
       readyTimeout: config.timeout || 30000,
       keepaliveInterval: 10000,
       keepaliveCountMax: 3,
     };
+  }
+
+  /**
+   * Create a persistent SSH connection
+   */
+  async connect(config: SSHConnectionConfig): Promise<SSHConnection> {
+    return new Promise((resolve, reject) => {
+      const client = this.createClient();
+      const id = `ssh-${++this.connectionCounter}-${Date.now()}`;
+
+      client
+        .on("ready", () => {
+          logger.debug(`SSH connection established: ${id} to ${config.host}`);
+          const connection: SSHConnection = { client, config, id };
+          this.connections.set(id, connection);
+          resolve(connection);
+        })
+        .on("error", (err) => {
+          logger.error(`SSH connection error: ${err.message}`);
+          reject(err);
+        })
+        .on("close", () => {
+          this.connections.delete(id);
+          logger.debug(`SSH connection closed: ${id}`);
+        })
+        .connect(this.getConnectionConfig(config));
+    });
+  }
+
+  /**
+   * Execute command on an existing connection
+   */
+  async execute(
+    connection: SSHConnection,
+    command: string
+  ): Promise<SSHExecuteResult> {
+    return new Promise((resolve, reject) => {
+      let stdout = "";
+      let stderr = "";
+
+      connection.client.exec(command, (err, channel: ClientChannel) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        channel
+          .on("close", (code: number) => {
+            resolve({
+              stdout: stdout.trim(),
+              stderr: stderr.trim(),
+              exitCode: code,
+              success: code === 0,
+            });
+          })
+          .on("data", (data: Buffer) => {
+            stdout += data.toString();
+          })
+          .stderr.on("data", (data: Buffer) => {
+            stderr += data.toString();
+          });
+      });
+    });
+  }
+
+  /**
+   * Write file content to remote server via existing connection
+   */
+  async writeFile(
+    connection: SSHConnection,
+    remotePath: string,
+    content: string
+  ): Promise<SSHExecuteResult> {
+    // Use heredoc for safer content transfer
+    const heredocMarker = `COOLIFY_EOF_${Date.now()}`;
+    const command = `cat > ${remotePath} << '${heredocMarker}'\n${content}\n${heredocMarker}`;
+    return this.execute(connection, command);
+  }
+
+  /**
+   * Read file content from remote server via existing connection
+   */
+  async readFileContent(
+    connection: SSHConnection,
+    remotePath: string
+  ): Promise<string> {
+    const result = await this.execute(connection, `cat ${remotePath}`);
+    if (!result.success) {
+      throw new Error(`Failed to read file ${remotePath}: ${result.stderr}`);
+    }
+    return result.stdout;
+  }
+
+  /**
+   * Disconnect an SSH connection
+   */
+  disconnect(connection: SSHConnection): void {
+    connection.client.end();
+    this.connections.delete(connection.id);
+  }
+
+  /**
+   * Get all active connections
+   */
+  getActiveConnections(): SSHConnection[] {
+    return Array.from(this.connections.values());
   }
 
   /**
@@ -315,7 +431,7 @@ class SSHService {
   }
 
   /**
-   * Copy file to remote server
+   * Copy file to remote server (alias for writeFile)
    */
   async copyFile(
     config: SSHConnectionConfig & {
@@ -323,15 +439,45 @@ class SSHService {
       remotePath: string;
     }
   ): Promise<SSHExecuteResult> {
-    // Use echo to write file content
-    const escapedContent = config.localContent
-      .replace(/\\/g, "\\\\")
-      .replace(/'/g, "'\\''");
+    return this.writeFileConfig({
+      ...config,
+      content: config.localContent,
+    });
+  }
 
+  /**
+   * Write file to remote server (config-based API)
+   */
+  async writeFileConfig(
+    config: SSHConnectionConfig & {
+      remotePath: string;
+      content: string;
+    }
+  ): Promise<SSHExecuteResult> {
+    // Use heredoc for safer content transfer (handles special characters)
+    const heredocMarker = `COOLIFY_EOF_${Date.now()}`;
     return this.executeCommand({
       ...config,
-      command: `echo '${escapedContent}' > ${config.remotePath}`,
+      command: `cat > ${config.remotePath} << '${heredocMarker}'\n${config.content}\n${heredocMarker}`,
     });
+  }
+
+  /**
+   * Write file to remote server (supports both config and connection-based calls)
+   */
+  writeFile(
+    configOrConnection: (SSHConnectionConfig & { remotePath: string; content: string }) | SSHConnection,
+    remotePath?: string,
+    content?: string
+  ): Promise<SSHExecuteResult> {
+    // Connection-based call: writeFile(connection, path, content)
+    if ('client' in configOrConnection && remotePath && content !== undefined) {
+      const heredocMarker = `COOLIFY_EOF_${Date.now()}`;
+      const command = `cat > ${remotePath} << '${heredocMarker}'\n${content}\n${heredocMarker}`;
+      return this.execute(configOrConnection, command);
+    }
+    // Config-based call: writeFile({ ...config, remotePath, content })
+    return this.writeFileConfig(configOrConnection as SSHConnectionConfig & { remotePath: string; content: string });
   }
 
   /**

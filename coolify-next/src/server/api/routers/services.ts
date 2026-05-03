@@ -4,6 +4,7 @@ import { services, environments } from "@/server/db/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { serviceQueue } from "@/server/queue/jobs/service";
+import { templateService } from "@/server/services/templates";
 
 export const servicesRouter = createTRPCRouter({
   /**
@@ -288,18 +289,14 @@ export const servicesRouter = createTRPCRouter({
    * List available service templates
    */
   listTemplates: teamProcedure.query(async () => {
-    // This would load from templates directory
-    // For now, return a static list
-    return [
-      { id: "wordpress", name: "WordPress", category: "CMS" },
-      { id: "ghost", name: "Ghost", category: "CMS" },
-      { id: "strapi", name: "Strapi", category: "CMS" },
-      { id: "n8n", name: "n8n", category: "Automation" },
-      { id: "gitea", name: "Gitea", category: "DevOps" },
-      { id: "uptime-kuma", name: "Uptime Kuma", category: "Monitoring" },
-      { id: "grafana", name: "Grafana", category: "Monitoring" },
-      { id: "minio", name: "MinIO", category: "Storage" },
-      { id: "plausible", name: "Plausible Analytics", category: "Analytics" },
-    ];
+    const templates = await templateService.loadTemplates();
+    return templates.map((t) => ({
+      id: t.id,
+      name: t.name,
+      category: t.tags[0] || "Other",
+      description: t.description,
+      documentation: t.documentation,
+      tags: t.tags,
+    }));
   }),
 });

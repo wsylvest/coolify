@@ -14,8 +14,10 @@ import {
   TaskSchedulerService,
   type ScheduledTaskJobData,
 } from "../src/server/queue/jobs/scheduled-task";
+import { createPreviewCleanupWorker } from "../src/server/queue/jobs/preview-cleanup";
 import { createDeploymentWorker } from "./deployment-worker";
 import { createDatabaseWorker } from "./database-worker";
+import { createServiceWorker } from "./service-worker";
 
 // Redis connection
 const redis = new IORedis({
@@ -50,6 +52,16 @@ async function startWorkers() {
     const scheduledTaskWorker = createScheduledTaskWorker(redis);
     workers.push(scheduledTaskWorker);
     logger.info("Scheduled task worker started");
+
+    // Initialize service worker (start/stop/restart operations)
+    const serviceWorker = createServiceWorker(redis);
+    workers.push(serviceWorker);
+    logger.info("Service worker started");
+
+    // Initialize preview cleanup worker
+    const previewCleanupWorker = createPreviewCleanupWorker(redis);
+    workers.push(previewCleanupWorker);
+    logger.info("Preview cleanup worker started");
 
     // Initialize the cron scheduler for scheduled tasks
     const scheduledTaskQueue = new Queue<ScheduledTaskJobData>("scheduled-task", {
