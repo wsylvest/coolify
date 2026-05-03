@@ -92,8 +92,9 @@ class TemplateService {
   private templateCache: Map<string, ParsedTemplate> = new Map();
 
   constructor() {
-    // Default templates directory - can be overridden
-    this.templatesDir = process.env.TEMPLATES_DIR ?? "/templates/compose";
+    // Default templates directory - relative to project root or from env
+    this.templatesDir = process.env.TEMPLATES_DIR ??
+      path.join(process.cwd(), "templates", "compose");
   }
 
   /**

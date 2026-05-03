@@ -4,6 +4,7 @@ import { applications, gitlabApps, deploymentQueue } from "@/server/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { verifyGitLabSignature } from "@/lib/api-auth";
 import { deploymentQueue as queue } from "@/server/queue";
+import { queuePreviewCleanup } from "@/server/queue/jobs/preview-cleanup";
 import { createId } from "@paralleldrive/cuid2";
 import { logger } from "@/lib/logger";
 
@@ -326,11 +327,27 @@ async function handleMergeRequestClosed(payload: GitLabMergeRequestEvent) {
     ),
   });
 
-  // TODO: Queue cleanup jobs to remove preview containers/resources
+  // Queue cleanup jobs for each application with preview deployments
+  const cleanupJobs = await Promise.all(
+    apps.map((app) =>
+      queuePreviewCleanup({
+        applicationId: app.id,
+        pullRequestId: object_attributes.iid,
+        repositoryFullName: project.path_with_namespace,
+      })
+    )
+  );
+
+  logger.info("Queued preview cleanup jobs", {
+    repo: project.path_with_namespace,
+    mrNumber: object_attributes.iid,
+    jobCount: cleanupJobs.length,
+  });
 
   return NextResponse.json({
     message: "MR closed, cleanup initiated",
     mergeRequest: object_attributes.iid,
     applicationsAffected: apps.length,
+    cleanupJobIds: cleanupJobs,
   });
 }

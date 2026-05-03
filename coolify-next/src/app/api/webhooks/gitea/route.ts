@@ -3,6 +3,7 @@ import { db } from "@/server/db";
 import { applications, deploymentQueue } from "@/server/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { deploymentQueue as queue } from "@/server/queue";
+import { queuePreviewCleanup } from "@/server/queue/jobs/preview-cleanup";
 import { createId } from "@paralleldrive/cuid2";
 import { logger } from "@/lib/logger";
 import crypto from "crypto";
@@ -341,10 +342,36 @@ async function handlePullRequestClosed(payload: GiteaPullRequestEvent) {
     prNumber: pull_request.number,
   });
 
-  // TODO: Queue cleanup jobs for preview environments
+  // Find applications with preview deployments enabled
+  const apps = await db.query.applications.findMany({
+    where: and(
+      eq(applications.gitRepository, repository.full_name),
+      eq(applications.previewDeploymentsEnabled, true),
+      isNull(applications.deletedAt)
+    ),
+  });
+
+  // Queue cleanup jobs for each application
+  const cleanupJobs = await Promise.all(
+    apps.map((app) =>
+      queuePreviewCleanup({
+        applicationId: app.id,
+        pullRequestId: pull_request.number,
+        repositoryFullName: repository.full_name,
+      })
+    )
+  );
+
+  logger.info("Queued preview cleanup jobs", {
+    repo: repository.full_name,
+    prNumber: pull_request.number,
+    jobCount: cleanupJobs.length,
+  });
 
   return NextResponse.json({
     message: "PR closed, cleanup initiated",
     pullRequest: pull_request.number,
+    applicationsAffected: apps.length,
+    cleanupJobIds: cleanupJobs,
   });
 }

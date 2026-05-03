@@ -516,16 +516,26 @@ export const proxyRouter = createTRPCRouter({
         })
       )
       .query(async ({ ctx, input }) => {
-        let query = ctx.db.query.domains.findMany({
+        // Build where conditions based on filters
+        const conditions = [];
+
+        if (input.resourceType) {
+          conditions.push(eq(domains.resourceType, input.resourceType));
+        }
+
+        if (input.resourceId) {
+          conditions.push(eq(domains.resourceId, input.resourceId));
+        }
+
+        const result = await ctx.db.query.domains.findMany({
+          where: conditions.length > 0 ? and(...conditions) : undefined,
           with: {
             sslCertificate: true,
           },
           orderBy: (domains, { asc }) => [asc(domains.fqdn)],
         });
 
-        // TODO: Add filtering by resourceType/resourceId
-
-        return query;
+        return result;
       }),
 
     /**

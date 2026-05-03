@@ -4,6 +4,7 @@ import { applications, githubApps, deploymentQueue } from "@/server/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { verifyGitHubSignature } from "@/lib/api-auth";
 import { deploymentQueue as queue } from "@/server/queue";
+import { queuePreviewCleanup } from "@/server/queue/jobs/preview-cleanup";
 import { createId } from "@paralleldrive/cuid2";
 import { logger } from "@/lib/logger";
 
@@ -348,11 +349,27 @@ async function handlePullRequestClosed(payload: GitHubPullRequestEvent) {
     ),
   });
 
-  // TODO: Queue cleanup jobs to remove preview containers/resources
+  // Queue cleanup jobs for each application with preview deployments
+  const cleanupJobs = await Promise.all(
+    apps.map((app) =>
+      queuePreviewCleanup({
+        applicationId: app.id,
+        pullRequestId: pull_request.number,
+        repositoryFullName: repository.full_name,
+      })
+    )
+  );
+
+  logger.info("Queued preview cleanup jobs", {
+    repo: repository.full_name,
+    prNumber: pull_request.number,
+    jobCount: cleanupJobs.length,
+  });
 
   return NextResponse.json({
     message: "PR closed, cleanup initiated",
     pullRequest: pull_request.number,
     applicationsAffected: apps.length,
+    cleanupJobIds: cleanupJobs,
   });
 }
