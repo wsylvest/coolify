@@ -3,7 +3,7 @@ import { createTRPCRouter, teamProcedure, adminProcedure } from "../trpc";
 import { services, environments } from "@/server/db/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { serviceQueue } from "@/server/queue/jobs/service";
+import { queueServiceStart, queueServiceStop, queueServiceRestart } from "@/server/queue";
 import { templateService } from "@/server/services/templates";
 
 export const servicesRouter = createTRPCRouter({
@@ -216,9 +216,7 @@ export const servicesRouter = createTRPCRouter({
         });
       }
 
-      await serviceQueue.add("start", {
-        serviceId: service.id,
-      });
+      await queueServiceStart(service.id);
 
       return { success: true };
     }),
@@ -247,9 +245,7 @@ export const servicesRouter = createTRPCRouter({
         });
       }
 
-      await serviceQueue.add("stop", {
-        serviceId: service.id,
-      });
+      await queueServiceStop(service.id);
 
       return { success: true };
     }),
@@ -278,9 +274,7 @@ export const servicesRouter = createTRPCRouter({
         });
       }
 
-      await serviceQueue.add("restart", {
-        serviceId: service.id,
-      });
+      await queueServiceRestart(service.id);
 
       return { success: true };
     }),

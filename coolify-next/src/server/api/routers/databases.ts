@@ -9,7 +9,7 @@ import {
 } from "@/server/db/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { databaseQueue } from "@/server/queue/jobs/database";
+import { queueDatabaseStart, queueDatabaseStop, queueDatabaseBackup } from "@/server/queue";
 import { generatePassword } from "@/lib/utils";
 
 const databaseInputSchema = z.object({
@@ -236,9 +236,7 @@ export const databasesRouter = createTRPCRouter({
         });
       }
 
-      await databaseQueue.add("start", {
-        databaseId: database.id,
-      });
+      await queueDatabaseStart(database.id);
 
       return { success: true };
     }),
@@ -267,9 +265,7 @@ export const databasesRouter = createTRPCRouter({
         });
       }
 
-      await databaseQueue.add("stop", {
-        databaseId: database.id,
-      });
+      await queueDatabaseStop(database.id);
 
       return { success: true };
     }),
@@ -356,7 +352,7 @@ export const databasesRouter = createTRPCRouter({
         .returning();
 
       // Queue backup job
-      await databaseQueue.add("backup", {
+      await queueDatabaseBackup({
         executionId: execution!.id,
         backupId: backup.id,
         databaseId: backup.databaseId,

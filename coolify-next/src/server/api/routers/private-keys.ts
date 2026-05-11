@@ -3,7 +3,7 @@ import { createTRPCRouter, teamProcedure, adminProcedure } from "../trpc";
 import { privateKeys } from "@/server/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import crypto from "crypto";
+import { wasmCryptoService } from "@/server/services/wasm";
 
 export const privateKeysRouter = createTRPCRouter({
   /**
