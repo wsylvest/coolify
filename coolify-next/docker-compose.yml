@@ -1,0 +1,75 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://coolify:password@postgres:5432/coolify_next
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_URL=http://localhost:3000
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - coolify-next
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=coolify
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=coolify_next
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - coolify-next
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coolify -d coolify_next"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - coolify-next
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run worker:start
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://coolify:password@postgres:5432/coolify_next
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - coolify-next
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  coolify-next:
+    driver: bridge
